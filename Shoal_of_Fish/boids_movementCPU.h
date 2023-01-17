@@ -54,17 +54,6 @@ void generateBoidVertices(s_boids* boids) {
 		float3 bottom2 = pos + v2 * BOID_WIDTH;
 		float3 bottom3 = pos + v3 * BOID_WIDTH;	
 
-		//printf("Boid num %d:\n", i);
-		//printf("Position: ");
-		//print_float3(pos);
-		//printf("Direction: ");
-		//print_float3(dir);
-		//printf("Vertices: ");
-		//print_float3(top);
-		//print_float3(bottom1);
-		//print_float3(bottom2);
-		//print_float3(bottom3);
-
 		write_float3(boids->triangleVertices, top, 3 * (9 * i));
 		write_float3(boids->triangleVertices, bottom1, 3 * (9 * i + 1));
 		write_float3(boids->triangleVertices, bottom2, 3 * (9 * i + 2));
@@ -83,8 +72,8 @@ inline void moveBoidsCPU(s_boids* boids, float deltaTime) {
 		separationRule(boids, i, deltaTime);
 		alignmentRule(boids, i, deltaTime);
 
-		boids->position.x[i] += boids->direction.x[i] * 0.01;
-		boids->position.y[i] += boids->direction.y[i] * 0.01;
-		boids->position.z[i] += boids->direction.z[i] * 0.01;
+		boids->position.x[i] += boids->direction.x[i] * boids->simulationOptions.boidSpeed;
+		boids->position.y[i] += boids->direction.y[i] * boids->simulationOptions.boidSpeed;
+		boids->position.z[i] += boids->direction.z[i] * boids->simulationOptions.boidSpeed;
 	}
 }

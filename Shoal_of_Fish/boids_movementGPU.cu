@@ -20,12 +20,12 @@ __host__ __device__ bool isInSight(s_boids* boids, int index, int other) {
 }
 
 __host__ __device__ void centerOfMassRule(s_boids* boids, int index, float deltaTime) {
+	// Boids try to approach the center of mass of the flockmates they can see
+
 	float3 positionSum = { 0, 0, 0 };
 	int numberOfBoidsNearby = 0;
 
 	for (int i = 0; i < boids->count; i++) {
-		//if (i == index) continue;
-
 		if (isInSight(boids, index, i)) {
 			positionSum += getFloat3FromVec3(boids->position, i);
 			numberOfBoidsNearby++;
@@ -49,6 +49,9 @@ __host__ __device__ void centerOfMassRule(s_boids* boids, int index, float delta
 }
 
 __host__ __device__ void separationRule(s_boids* boids, int index, float deltaTime) {
+	// Boids try to stay away from each other
+	// Also, if a boid goes out of bounds of the cube, a force pushing him back inside will be applied
+
 	float3 repelSum = { 0, 0, 0 };
 	int numberOfBoidsNearby = 0;
 	float3 pos = getFloat3FromVec3(boids->position, index);
@@ -60,9 +63,7 @@ __host__ __device__ void separationRule(s_boids* boids, int index, float deltaTi
 		}
 	}
 
-	float3 repelForce = repelSum / numberOfBoidsNearby;
-	//float3 movementVector = repelForce - getFloat3FromVec3(boids->position, index);
-	
+	float3 repelForce = repelSum / numberOfBoidsNearby;	
 	float3 lowCorner = boids->simulationOptions.lowCubeCorner;
 	float3 highCorner = boids->simulationOptions.highCubeCorner;
 
@@ -73,7 +74,7 @@ __host__ __device__ void separationRule(s_boids* boids, int index, float deltaTi
 	currDirection.y += repelForce.y;
 	currDirection.z += repelForce.z;
 
-	// if boid is out of bounds of the box
+	// if boid is out of bounds of the box, push him back inside
 	if (pos.x < lowCorner.x || pos.x > highCorner.x) {
 		currDirection.x += -(pos.x * separationFactor);
 	}
@@ -92,6 +93,8 @@ __host__ __device__ void separationRule(s_boids* boids, int index, float deltaTi
 }
 
 __host__ __device__ void alignmentRule(s_boids* boids, int index, float deltaTime) {
+	// Boids try to adjust their heading direction to an average of the flockmates they can see
+
 	float3 alignSum = { 0, 0, 0 };
 	int numberOfBoidsNearby = 0;
 	float3 pos = getFloat3FromVec3(boids->position, index);
@@ -104,7 +107,6 @@ __host__ __device__ void alignmentRule(s_boids* boids, int index, float deltaTim
 	}
 
 	float3 alignForce = alignSum / numberOfBoidsNearby;
-	//float3 movementVector = repelForce - getFloat3FromVec3(boids->position, index);
 
 	float alignmentFactor = boids->simulationOptions.alignFactor;
 	alignForce *= alignmentFactor;
@@ -134,12 +136,7 @@ __global__ void moveBoidsGPU(s_boids* boids, float deltaTime) {
 	centerOfMassRule(boids, index, deltaTime);
 	separationRule(boids, index, deltaTime);
 	alignmentRule(boids, index, deltaTime);
-	//boids->position.x[index] += boids->direction.x[index] * deltaTime;
-	//boids->position.y[index] += boids->direction.y[index] * deltaTime;
-	//boids->position.z[index] += boids->direction.z[index] * deltaTime;
-	//boids->position.x[index] += boids->direction.x[index];
-	//boids->position.y[index] += boids->direction.y[index];
-	//boids->position.z[index] += boids->direction.z[index];
+
 	boids->position.x[index] += boids->direction.x[index] * boids->simulationOptions.boidSpeed;
 	boids->position.y[index] += boids->direction.y[index] * boids->simulationOptions.boidSpeed;
 	boids->position.z[index] += boids->direction.z[index] * boids->simulationOptions.boidSpeed;

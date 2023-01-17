@@ -1,54 +1,17 @@
-﻿/* Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *  * Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *  * Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *  * Neither the name of NVIDIA CORPORATION nor the names of its
- *    contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
- * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
- * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
- * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
- /*
-     Particle system example with collisions using uniform grid
-
-     CUDA 2.1 SDK release 12/2008
-     - removed atomic grid method, some optimization, added demo mode.
-
-     CUDA 2.2 release 3/2009
-     - replaced sort function with latest radix sort, now disables v-sync.
-     - added support for automated testing and comparison to a reference value.
- */
-
- // OpenGL Graphics includes
-
+﻿// OpenGL Graphics includes
 #include "Dependencies/GL/glew.h"
 #include "Dependencies/GL/freeglut.h"
 #include "Dependencies/Helpers/helper_gl.h"
+
 // CUDA runtime
 #include "cuda_runtime.h"
 #include "cuda_gl_interop.h"
 
-// CUDA utilities and system includes
+// CUDA utilities
 #include "Dependencies/Helpers/helper_cuda.h"  // includes cuda.h and cuda_runtime_api.h
 #include "Dependencies/Helpers/helper_timer.h"
 
+// File includes
 #include "boids.h"
 #include "boids_movementCPU.h"
 #include "boids_movementGPU.cuh"
@@ -63,8 +26,13 @@
 #define MAX_EPSILON_ERROR 5.00f
 #define THRESHOLD 0.30f
 
-#define GRID_SIZE 64
-#define NUM_BOIDS 38500
+#define CUBE_SIZE 2
+#define NUM_BOIDS 10000
+#define NUM_BOIDS_CHANGE 1000
+#define BOID_CHANGE_SPEED 0.001f
+#define BOID_CHANGE_COHESION 0.005f
+#define BOID_CHANGE_SEPARATION 0.005f
+#define BOID_CHANGE_ALIGNMENT 0.005f
 
 const int width = 640, height = 480;
 
@@ -77,24 +45,11 @@ float camera_trans_lag[] = { 0, 0, -3 };
 float camera_rot_lag[] = { 0, 0, 0 };
 const float inertia = 0.1f;
 
-int mode = 0;
-bool displayEnabled = true;
 bool bPause = false;
 bool wireframe = false;
 bool useCPU = false;
-//bool demoMode = false;
-//int idleCounter = 0;
-//int demoCounter = 0;
-//const int idleDelay = 2000;
 
-enum { M_VIEW = 0 };
-
-const int cubeSize = 2;
-int numBoids = 1;
-uint3 gridSize;
-
-// simulation parameters
-float timestep = 0.5f;
+int numBoids = NUM_BOIDS;
 
 // fps
 static int frameCount = 0;
@@ -138,6 +93,24 @@ void cleanup() {
     return;
 }
 
+void InitializeBoids(int boidCount) {
+    initBoids(h_boids, numBoids);
+    checkCudaErrors(cudaMalloc((void**)&d_boids, sizeof(s_boids)));
+    initBoidsGPU(*d_boids, helper, numBoids);
+    printf("Boid count: %d\n", h_boids.count);
+    randomizeBoids(h_boids, 0.01, 0.1, -1, 1);
+    generateBoidVertices(&h_boids);
+}
+
+void ReinitializeBoids(int boidCount) {
+    cleanup();
+    InitializeBoids(boidCount);
+    sdkCreateTimer(&timer);
+    sdkCreateTimer(&renderTimer);
+    sdkResetTimer(&timer);
+    sdkResetTimer(&renderTimer);
+}
+
 // initialize OpenGL
 void initGL(int* argc, char** argv) {
     glutInit(argc, argv);
@@ -158,15 +131,32 @@ void initGL(int* argc, char** argv) {
     glutReportErrors();
 }
 
+void computeFPS_CPU(float computationTime) {
+    fpsCount++;
+
+    timeFor15frames += computationTime;
+
+    if (fpsCount >= 15) {
+        char fps[256];
+        float ifps = 1.0f / timeFor15frames * 15.0f;
+        sprintf(fps, "Fish (%d boids) - CPU: %1.5f, %3.1f fps",
+            numBoids, computationTime, ifps);
+
+        glutSetWindowTitle(fps);
+        fpsCount = 0;
+        timeFor15frames = 0;
+    }
+}
+
 void computeFPS_GPU(float copyToDeviceTime, float computationTime, float copyToHostTime) {
     fpsCount++;
 
     timeFor15frames += copyToDeviceTime + computationTime + copyToHostTime;
 
-    if (fpsCount == 15) {
+    if (fpsCount >= 15) {
         char fps[256];
         float ifps = 1.0f / timeFor15frames * 15.0f;
-        sprintf(fps, "CUDA Shoal of Fish (%d boids): %1.5f + %1.8f + %1.5f, %3.1f fps",
+        sprintf(fps, "Fish (%d boids) - GPU: %1.5f + %1.8f + %1.5f, %3.1f fps",
             numBoids, copyToDeviceTime, computationTime, copyToHostTime, ifps);
 
         glutSetWindowTitle(fps);
@@ -181,7 +171,12 @@ void display() {
     // update the simulation
     if (!bPause) {
         if (useCPU) {
+            sdkResetTimer(&timer);
+            sdkStartTimer(&timer);
+
             moveBoidsCPU(&h_boids, renderTime);
+            computationTime = 0.001f * sdkGetTimerValue(&timer);
+            sdkStopTimer(&timer);
         }
         else {
             sdkResetTimer(&timer);
@@ -205,23 +200,6 @@ void display() {
 
             sdkStopTimer(&timer);
         }
-
-        //float3 dir = make_float3(
-        //    h_boids.position.x[0],
-        //    h_boids.position.y[0],
-        //    h_boids.position.z[0]
-        //);
-        //print_float3(dir);
-        //float3 tri = make_float3(
-        //    h_boids.triangleVertices[0],
-        //    h_boids.triangleVertices[1],
-        //    h_boids.triangleVertices[2]
-        //);
-        //print_float3(tri);
-
-        //h_boids.position.x[0] += h_boids.direction.x[0] * 0.01;
-        //h_boids.position.y[0] += h_boids.direction.y[0] * 0.01;
-        //h_boids.position.z[0] += h_boids.direction.z[0] * 0.01;
 
         generateBoidVertices(&h_boids);
     }
@@ -248,7 +226,7 @@ void display() {
 
     // cube
     glColor3f(1.0, 1.0, 1.0);
-    glutWireCube(cubeSize);
+    glutWireCube(CUBE_SIZE);
 
     sdkStopTimer(&renderTimer);
     renderTime = 0.001f * sdkGetTimerValue(&renderTimer);
@@ -257,7 +235,12 @@ void display() {
     glutSwapBuffers();
     glutReportErrors();
 
-    computeFPS_GPU(copyToDeviceTime, computationTime, copyToHostTime);
+    if (useCPU) {
+        computeFPS_CPU(computationTime);
+    }
+    else {
+        computeFPS_GPU(copyToDeviceTime, computationTime, copyToHostTime);    
+    }
 }
 
 inline float frand() { return rand() / (float)RAND_MAX; }
@@ -320,31 +303,26 @@ void ixformPoint(float* v, float* r, GLfloat* m) {
 }
 
 void motion(int x, int y) {
-    float dx, dy;
-    dx = (float)(x - ox);
-    dy = (float)(y - oy);
+	float dx, dy;
+	dx = (float)(x - ox);
+	dy = (float)(y - oy);
 
-    switch (mode) {
-    case M_VIEW:
-        if (buttonState == 3) {
-            // left+middle = zoom
-            camera_trans[2] += (dy / 100.0f) * 0.5f * fabs(camera_trans[2]);
-        }
-        else if (buttonState & 2) {
-            // middle = translate
-            camera_trans[0] += dx / 100.0f;
-            camera_trans[1] -= dy / 100.0f;
-        }
-        else if (buttonState & 1) {
-            // left = rotate
-            camera_rot[0] += dy / 5.0f;
-            camera_rot[1] += dx / 5.0f;
-        }
+	if (buttonState == 3) {
+		// left+middle = zoom
+		camera_trans[2] += (dy / 100.0f) * 0.5f * fabs(camera_trans[2]);
+	}
+	else if (buttonState & 2) {
+		// middle = translate
+		camera_trans[0] += dx / 100.0f;
+		camera_trans[1] -= dy / 100.0f;
+	}
+	else if (buttonState & 1) {
+		// left = rotate
+		camera_rot[0] += dy / 5.0f;
+		camera_rot[1] += dx / 5.0f;
+	}
 
-        break;
-    }
-
-    ox = x;
+	ox = x;
     oy = y;
 
     glutPostRedisplay();
@@ -358,9 +336,47 @@ void key(unsigned char key, int /*x*/, int /*y*/) {
         break;
     case 'G':
         useCPU = false;
+        frameCount = 0;
         break;
     case 'g':
         useCPU = true;
+        frameCount = 0;
+        break;
+    case '+':
+        numBoids += NUM_BOIDS_CHANGE;
+        ReinitializeBoids(numBoids);
+        frameCount = 0;
+        break;
+    case '-':
+        numBoids -= NUM_BOIDS_CHANGE;
+        ReinitializeBoids(numBoids);
+        frameCount = 0;
+        break;
+    case 'W':
+        h_boids.simulationOptions.boidSpeed += BOID_CHANGE_SPEED;
+        break;
+    case 'w':
+        h_boids.simulationOptions.boidSpeed -= BOID_CHANGE_SPEED;
+        if (h_boids.simulationOptions.boidSpeed < 0)
+            h_boids.simulationOptions.boidSpeed = 0;
+        break;
+    case 'E':
+        h_boids.simulationOptions.cohesionFactor += BOID_CHANGE_COHESION;
+        break;
+    case 'e':
+        h_boids.simulationOptions.cohesionFactor -= BOID_CHANGE_COHESION;
+        break;
+    case 'R':
+        h_boids.simulationOptions.separationFactor += BOID_CHANGE_SEPARATION;
+        break;
+    case 'r':
+        h_boids.simulationOptions.separationFactor -= BOID_CHANGE_SEPARATION;
+        break;
+    case 'T':
+        h_boids.simulationOptions.alignFactor += BOID_CHANGE_ALIGNMENT;
+        break;
+    case 't':
+        h_boids.simulationOptions.alignFactor -= BOID_CHANGE_ALIGNMENT;
         break;
     case 'q':
 #if defined(__APPLE__) || defined(MACOSX)
@@ -378,21 +394,25 @@ void idle(void) {
     glutPostRedisplay();
 }
 
-void mainMenu(int i) { key((unsigned char)i, 0, 0); }
-
-void initMenus() {
-    glutCreateMenu(mainMenu);
-    glutAddMenuEntry("Reset block [1]", '1');
-    glutAddMenuEntry("Reset random [2]", '2');
-    glutAddMenuEntry("Add sphere [3]", '3');
-    glutAddMenuEntry("View mode [v]", 'v');
-    glutAddMenuEntry("Move cursor mode [m]", 'm');
-    glutAddMenuEntry("Toggle point rendering [p]", 'p');
-    glutAddMenuEntry("Toggle animation [ ]", ' ');
-    glutAddMenuEntry("Step animation [ret]", 13);
-    glutAddMenuEntry("Toggle sliders [h]", 'h');
-    glutAddMenuEntry("Quit (esc)", '\033');
-    glutAttachMenu(GLUT_RIGHT_BUTTON);
+void printToolTip() {
+    printf("Welcome to the Shoal of Fish simulation\n");
+    printf("Simulation controls:\n");
+    printf("Use mouse dragging to rotate the scene\n");
+    printf("Hold CTRL + mouse dragging - zoom in, zoom out\n");
+    printf("Hold Shift + mouse dragging - camera panning\n");
+    printf("SPACE - pause/unpause simulation\n");
+    printf("G/g - calculate boid movement using GPU/CPU\n");
+    printf("+/- - increase/decrease boid number (1000 per step)\n");
+    printf("W/w - increase/decrease boid speed\n");
+    printf("E/e - increase/decrease flock cohesion factor\n");
+    printf("R/r - increase/decrease boid separation factor\n");
+    printf("T/t - increase/decrease boid alignment factor\n");
+    printf("When using the GPU for calculations, the values displayed\n");
+    printf("on the appbar mark:\n");
+    printf("1. Time to copy data onto the GPU\n");
+    printf("2. Computation time\n");
+    printf("3. Time to copy data back from the GPU\n");
+    printf("When using the CPU, only the computation time will be displayed\n");
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -403,38 +423,12 @@ int main(int argc, char** argv) {
     setenv("DISPLAY", ":0", 0);
 #endif
 
-    printf(
-        "NOTE: The CUDA Samples are not meant for performance measurements. "
-        "Results may vary when GPU Boost is enabled.\n\n");
-
-    numBoids = NUM_BOIDS;
-    int gridDim = GRID_SIZE;
-
-    gridSize.x = gridSize.y = gridSize.z = gridDim;
-    printf("grid: %d x %d x %d = %d cells\n", gridSize.x, gridSize.y, gridSize.z,
-        gridSize.x * gridSize.y * gridSize.z);
-    printf("Boids: %d\n", numBoids);
+    printToolTip();
 
     initGL(&argc, argv);
-    initBoids(h_boids, numBoids);
-    checkCudaErrors(cudaMalloc((void**)&d_boids, sizeof(s_boids)));
-    initBoidsGPU(*d_boids, helper, numBoids);
-    printf("h_boids count: %d\n", h_boids.count);
-    setBoid(h_boids, 0, { 0, 0, 0 }, { 0, 1, 0 }, 0);
-    randomizeBoids(h_boids, 0.01, 0.1, -1, 1);
-    generateBoidVertices(&h_boids);
+    InitializeBoids(numBoids);
     sdkCreateTimer(&timer);
     sdkCreateTimer(&renderTimer);
-
-
-    //for (int i = 0; i < 5; i++) {
-    //    float3 pos = {
-    //        h_boids.triangleVertices[3 * i],
-    //        h_boids.triangleVertices[3 * i + 1],
-    //        h_boids.triangleVertices[3 * i + 2]
-    //    };
-    //    printf("V %d: %3.1f, %3.1f, %3.1f\n", i, pos.x, pos.y, pos.z);
-    //}
 
 	glutDisplayFunc(display);
 	glutReshapeFunc(reshape);

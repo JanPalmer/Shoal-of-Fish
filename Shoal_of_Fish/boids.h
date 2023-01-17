@@ -1,6 +1,7 @@
 #pragma once
 #include <stdlib.h>
 #include "cuda_runtime.h"
+#include "Dependencies/Helpers/helper_cuda.h"
 
 #define TRIANGLES_PER_BOID 3
 #define VERTICES_PER_TRIANGLE 3
@@ -42,13 +43,11 @@ inline void initVec3Array(s_vec3& vec3, int num) {
 }
 
 inline void initBoids(s_boids& boids, int boidNum) {
-	printf("Initiating BOIDS\n");
-
 	boids.count = boidNum;
 	initVec3Array(boids.position, boidNum);
 	initVec3Array(boids.direction, boidNum);
 	boids.velocity = new float[boidNum];
-	boids.triangleVertices = new float[boidNum * 3 * 3 * 3];
+	boids.triangleVertices = new float[boidNum * TRIANGLES_PER_BOID * VERTICES_PER_TRIANGLE * FLOATS_PER_VERTEX];
 }
 
 inline void initVec3ArrayGPU(s_vec3& vec3, int num) {
@@ -61,7 +60,8 @@ inline void initBoidsGPU(s_boids& boids, s_boids& helper, int boidNum) {
 	initVec3ArrayGPU(helper.position, boidNum);
 	initVec3ArrayGPU(helper.direction, boidNum);
 	checkCudaErrors(cudaMalloc((void**)&helper.velocity, boidNum * sizeof(float)));
-	checkCudaErrors(cudaMalloc((void**)&helper.triangleVertices, boidNum * 3 * 3 * 3 * sizeof(float)));
+	checkCudaErrors(cudaMalloc((void**)&helper.triangleVertices,
+		boidNum * TRIANGLES_PER_BOID * VERTICES_PER_TRIANGLE * FLOATS_PER_VERTEX * sizeof(float)));
 
 	checkCudaErrors(cudaMemcpy(&boids.position.x, &helper.position.x, sizeof(float*), cudaMemcpyHostToDevice));
 	checkCudaErrors(cudaMemcpy(&boids.position.y, &helper.position.y, sizeof(float*), cudaMemcpyHostToDevice));
