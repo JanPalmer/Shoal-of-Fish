@@ -1,0 +1,8 @@
+#include "utilities.cuh"
+#include "boids.h"
+
+__host__ __device__ bool isInSight(s_boids* boids, int index, int other);
+__host__ __device__ void centerOfMassRule(s_boids* boids, int index);
+__host__ __device__ void separationRule(s_boids* boids, int index);
+__host__ __device__ void alignmentRule(s_boids* boids, int index);
+__global__ void moveBoidsGPU(s_boids* boids, float deltaTime);

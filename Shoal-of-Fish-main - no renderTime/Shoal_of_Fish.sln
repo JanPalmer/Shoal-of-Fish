@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.33130.400
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Shoal_of_Fish", "Shoal_of_Fish\Shoal_of_Fish.vcxproj", "{31AD1025-E9E6-47B4-A213-16D6305AC90C}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{31AD1025-E9E6-47B4-A213-16D6305AC90C}.Debug|x64.ActiveCfg = Debug|x64
+		{31AD1025-E9E6-47B4-A213-16D6305AC90C}.Debug|x64.Build.0 = Debug|x64
+		{31AD1025-E9E6-47B4-A213-16D6305AC90C}.Release|x64.ActiveCfg = Release|x64
+		{31AD1025-E9E6-47B4-A213-16D6305AC90C}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {3A1D634A-D8DA-4DF6-9291-D0374AEC6BAB}
+	EndGlobalSection
+EndGlobal
